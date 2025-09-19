@@ -8,8 +8,7 @@ PyIDE – VSCode Style con:
 - Encriptar / Desencriptar (XOR)
 - Deshacer / Rehacer / Seleccionar todo
 - Ir a línea
-- Depuración de sintaxis: marca errores de compilación y los muestra en Output
-- Ejecutar código Python y mostrar stdout/stderr en Output
+- Depuración de sintaxis y ejecución con salida en panel Output
 - Hotkeys: Ctrl+S, Ctrl+Shift+S, F5, Alt+V, Ctrl+Z, Ctrl+Shift+Z, Ctrl+A, Alt+G
 """
 
@@ -239,14 +238,21 @@ class MainWindow(QMainWindow):
         if ed:
             ed.selectAll()
 
-    # --- Go to Line ---
+    # --- Go to Line (posicional args, sin kwargs) ---
     def go_to_line(self):
         ed = self.tabs.currentWidget()
         if not ed:
             return
         max_line = ed.document().blockCount()
+        # getInt signature: (parent, title, label, value, minimum, maximum, step)
         line, ok = QInputDialog.getInt(
-            self, "Go to line", f"Line number (1–{max_line}):", min=1, max=max_line
+            self,
+            "Go to line",
+            f"Line number (1–{max_line}):",
+            1,      # valor inicial
+            1,      # mínimo
+            max_line,  # máximo
+            1       # step
         )
         if ok:
             block = ed.document().findBlockByNumber(line - 1)
