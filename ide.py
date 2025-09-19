@@ -5,6 +5,7 @@ PyIDE – VSCode Style con:
 - Pestañas de edición (cerrables)
 - Numeración de líneas
 - Tabulación / Des-tabulación inteligente
+- Auto-indent al pulsar Enter
 - Resaltado de sintaxis Python usando palabras de JSON
 - Abrir (simple/múltiple), Guardar, Guardar como
 - Encriptar / Desencriptar (XOR)
@@ -51,7 +52,7 @@ def xor_cipher(text, key=ENCRYPTION_KEY):
     return ''.join(chr(ord(c) ^ key) for c in text)
 
 # -------------------------------------------------
-# Line Number Area Widget
+# Área de numeración de líneas
 # -------------------------------------------------
 class LineNumberArea(QWidget):
     def __init__(self, editor):
@@ -67,8 +68,8 @@ class LineNumberArea(QWidget):
 
         block = self.codeEditor.firstVisibleBlock()
         block_number = block.blockNumber()
-        top = self.codeEditor.blockBoundingGeometry(block)\
-                    .translated(self.codeEditor.contentOffset()).top()
+        top = self.codeEditor.blockBoundingGeometry(block) \
+            .translated(self.codeEditor.contentOffset()).top()
         bottom = top + self.codeEditor.blockBoundingRect(block).height()
         line_height = self.codeEditor.fontMetrics().height()
         painter.setPen(QColor("#888888"))
@@ -89,14 +90,16 @@ class LineNumberArea(QWidget):
         painter.end()
 
 # -------------------------------------------------
-# Code Editor with Line Numbers & Tab Handling
+# Editor de código con números de línea y auto-indent
 # -------------------------------------------------
 class CodeEditor(QPlainTextEdit):
     def __init__(self):
         super().__init__()
+        # Tab = 4 espacios
         space_width = self.fontMetrics().horizontalAdvance(' ')
         self.setTabStopDistance(4 * space_width)
 
+        # Área de línea
         self.lineNumberArea = LineNumberArea(self)
         self.blockCountChanged.connect(self.updateLineNumberAreaWidth)
         self.updateRequest.connect(self.updateLineNumberArea)
@@ -129,9 +132,29 @@ class CodeEditor(QPlainTextEdit):
         )
 
     def keyPressEvent(self, event):
+        # Auto-indent al pulsar Enter
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            cursor = self.textCursor()
+            block = cursor.block()
+            text = block.text()
+            # indent actual
+            base_indent = len(text) - len(text.lstrip(' '))
+            # si la línea termina en dos puntos, aumentar indent
+            extra = 4 if text.rstrip().endswith(':') else 0
+
+            # aplicar comportamiento por defecto (nueva línea)
+            super().keyPressEvent(event)
+
+            # insertar sangría
+            self.insertPlainText(' ' * (base_indent + extra))
+            return
+
+        # Tabulación normal
         if event.key() == Qt.Key_Tab and not event.modifiers():
             self.insertPlainText(' ' * 4)
             return
+
+        # Des-tabulación con Shift+Tab
         if event.key() == Qt.Key_Backtab:
             cursor = self.textCursor()
             block = cursor.block()
@@ -145,10 +168,11 @@ class CodeEditor(QPlainTextEdit):
                 cursor.removeSelectedText()
                 cursor.endEditBlock()
             return
+
         super().keyPressEvent(event)
 
 # -------------------------------------------------
-# Syntax Highlighter que usa KEYWORDS de JSON
+# Resaltador de sintaxis usando JSON para keywords
 # -------------------------------------------------
 class PythonHighlighter(QSyntaxHighlighter):
     def __init__(self, doc):
@@ -189,16 +213,16 @@ class PythonHighlighter(QSyntaxHighlighter):
             comment_spans.append((s, l))
 
         for pat, fmt in self.keyword_rules:
-            it = pat.globalMatch(text)
-            while it.hasNext():
-                m = it.next()
-                s, l = m.capturedStart(), m.capturedLength()
+            it2 = pat.globalMatch(text)
+            while it2.hasNext():
+                m2 = it2.next()
+                s, l = m2.capturedStart(), m2.capturedLength()
                 if not any(start <= s < start + length
-                           for start, length in string_spans + comment_spans):
+                           for start, length in (string_spans + comment_spans)):
                     self.setFormat(s, l, fmt)
 
 # -------------------------------------------------
-# Main Window
+# Ventana principal
 # -------------------------------------------------
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -206,6 +230,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("PyIDE – VSCode Style")
         self.resize(1024, 768)
 
+        # Explorador de archivos
         model = QFileSystemModel()
         model.setRootPath(QDir.currentPath())
         self.tree = QTreeView()
@@ -213,54 +238,60 @@ class MainWindow(QMainWindow):
         self.tree.setRootIndex(model.index(QDir.currentPath()))
         self.tree.doubleClicked.connect(self.open_from_tree)
 
+        # Pestañas de editor
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
 
+        # Layout
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.addWidget(self.tree, 1)
         layout.addWidget(self.tabs, 3)
         self.setCentralWidget(container)
 
+        # Barra de estado
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
+        # Panel Output
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
         dock = QDockWidget("Output", self)
         dock.setWidget(self.output)
         self.addDockWidget(Qt.BottomDockWidgetArea, dock)
 
+        # Proceso de ejecución
         self.proc = QProcess(self)
         self.proc.setProcessChannelMode(QProcess.MergedChannels)
         self.proc.readyReadStandardOutput.connect(self.handle_stdout)
         self.proc.finished.connect(self.process_finished)
 
+        # Menús y atajos
         menubar = QMenuBar()
 
         file_menu = menubar.addMenu("&File")
-        file_menu.addAction(self._make_action("Open...", self.open_file))
+        file_menu.addAction(self._make_action("Open...",      self.open_file))
         file_menu.addAction(self._make_action("Open Multiple...", self.open_multiple))
         file_menu.addSeparator()
-        file_menu.addAction(self._make_action("Save", self.save_current, "Ctrl+S"))
-        file_menu.addAction(self._make_action("Save As...", self.save_as_current, "Ctrl+Shift+S"))
+        file_menu.addAction(self._make_action("Save",         self.save_current,    "Ctrl+S"))
+        file_menu.addAction(self._make_action("Save As...",    self.save_as_current, "Ctrl+Shift+S"))
         file_menu.addSeparator()
-        file_menu.addAction(self._make_action("Exit", self.close))
+        file_menu.addAction(self._make_action("Exit",         self.close))
 
         edit_menu = menubar.addMenu("&Edit")
-        edit_menu.addAction(self._make_action("Undo", self.undo_current, "Ctrl+Z"))
-        edit_menu.addAction(self._make_action("Redo", self.redo_current, "Ctrl+Shift+Z"))
-        edit_menu.addAction(self._make_action("Select All", self.select_all_current, "Ctrl+A"))
+        edit_menu.addAction(self._make_action("Undo",         self.undo_current,    "Ctrl+Z"))
+        edit_menu.addAction(self._make_action("Redo",         self.redo_current,    "Ctrl+Shift+Z"))
+        edit_menu.addAction(self._make_action("Select All",   self.select_all_current, "Ctrl+A"))
         edit_menu.addSeparator()
-        edit_menu.addAction(self._make_action("Encrypt", self.encrypt_current))
-        edit_menu.addAction(self._make_action("Decrypt", self.decrypt_current))
+        edit_menu.addAction(self._make_action("Encrypt",      self.encrypt_current))
+        edit_menu.addAction(self._make_action("Decrypt",      self.decrypt_current))
         edit_menu.addSeparator()
-        edit_menu.addAction(self._make_action("Go to Line...", self.go_to_line, "Alt+G"))
+        edit_menu.addAction(self._make_action("Go to Line...",self.go_to_line,      "Alt+G"))
 
         run_menu = menubar.addMenu("&Run")
-        run_menu.addAction(self._make_action("Debug (Syntax)", self.debug_current, "Alt+V"))
-        run_menu.addAction(self._make_action("Run Code", self.run_current, "F5"))
+        run_menu.addAction(self._make_action("Debug (Syntax)", self.debug_current,  "Alt+V"))
+        run_menu.addAction(self._make_action("Run Code",       self.run_current,    "F5"))
 
         self.setMenuBar(menubar)
 
@@ -271,7 +302,7 @@ class MainWindow(QMainWindow):
             act.setShortcut(shortcut)
         return act
 
-    # --- File ops ---
+    # --- Abrir / Guardar ---
     def open_file(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Open File", "", "Python Files (*.py);;All Files (*)"
@@ -323,7 +354,7 @@ class MainWindow(QMainWindow):
         self.tabs.setTabText(self.tabs.currentIndex(), os.path.basename(path))
         self.status.showMessage(f"Saved As: {path}", 5000)
 
-    # --- Edit ops ---
+    # --- Edit ---
     def undo_current(self):
         ed = self.tabs.currentWidget()
         if ed:
@@ -355,7 +386,7 @@ class MainWindow(QMainWindow):
             ed.setTextCursor(cursor)
             ed.setFocus()
 
-    # --- Encrypt / Decrypt ---
+    # --- Cifrar / Descifrar ---
     def encrypt_current(self):
         ed = self.tabs.currentWidget()
         if ed:
@@ -368,7 +399,7 @@ class MainWindow(QMainWindow):
             ed.setPlainText(xor_cipher(ed.toPlainText()))
             self.status.showMessage("Content decrypted (XOR).", 3000)
 
-    # --- Syntax debug ---
+    # --- Debug sintaxis ---
     def debug_current(self):
         ed = self.tabs.currentWidget()
         if not ed:
@@ -393,7 +424,7 @@ class MainWindow(QMainWindow):
             self.status.showMessage(err, 7000)
             self.output.appendPlainText(err)
 
-    # --- Run code ---
+    # --- Ejecutar código ---
     def run_current(self):
         ed = self.tabs.currentWidget()
         if not ed:
@@ -425,7 +456,7 @@ class MainWindow(QMainWindow):
             self.status.showMessage(final, 7000)
         self.output.appendPlainText(final)
 
-    # --- Close tab ---
+    # --- Cerrar pestaña ---
     def close_tab(self, index):
         self.tabs.removeTab(index)
         self.status.showMessage(f"Closed tab {index}", 3000)
