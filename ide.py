@@ -6,17 +6,18 @@ PyIDE – VSCode Style con:
 - Resaltado de sintaxis Python (keywords azul, strings rojo, comentarios gris)
 - Abrir (simple/múltiple), Guardar, Guardar como
 - Encriptar / Desencriptar (XOR)
-- Depuración de sintaxis: marca errores de compilación
-- Ejecutar código Python y mostrar salida
+- Deshacer / Rehacer / Seleccionar todo
+- Ir a línea
+- Depuración de sintaxis: marca errores de compilación y los muestra en Output
+- Ejecutar código Python y mostrar stdout/stderr en Output
+- Hotkeys: Ctrl+S, Ctrl+Shift+S, F5, Alt+V, Ctrl+Z, Ctrl+Shift+Z, Ctrl+A, Alt+G
 """
 
 import sys
 import os
 import tempfile
 
-from PySide6.QtCore import (
-    QDir, QRegularExpression, Qt, QProcess
-)
+from PySide6.QtCore import QDir, QRegularExpression, Qt, QProcess
 from PySide6.QtGui import (
     QAction, QColor, QFont,
     QSyntaxHighlighter, QTextCharFormat, QTextCursor
@@ -24,8 +25,8 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout,
     QTreeView, QFileSystemModel, QTabWidget,
-    QPlainTextEdit, QStatusBar,
-    QFileDialog, QMenuBar, QDockWidget
+    QPlainTextEdit, QStatusBar, QFileDialog, QMenuBar,
+    QDockWidget, QInputDialog
 )
 
 # -------------------------------------------------
@@ -42,8 +43,6 @@ def xor_cipher(text, key=ENCRYPTION_KEY):
 class PythonHighlighter(QSyntaxHighlighter):
     def __init__(self, doc):
         super().__init__(doc)
-
-        # Formato keywords
         self.keyword_rules = []
         kw_fmt = QTextCharFormat()
         kw_fmt.setForeground(QColor("#569CD6"))
@@ -58,18 +57,15 @@ class PythonHighlighter(QSyntaxHighlighter):
             pat = QRegularExpression(rf"\b{w}\b")
             self.keyword_rules.append((pat, kw_fmt))
 
-        # Formato comentarios
         self.comment_pattern = QRegularExpression(r"#.*")
         self.comment_format = QTextCharFormat()
         self.comment_format.setForeground(QColor("#888888"))
 
-        # Formato strings (simples, no-multilínea)
         self.string_pattern = QRegularExpression(r"(['\"]).*?\1")
         self.string_format = QTextCharFormat()
         self.string_format.setForeground(QColor("#A31515"))
 
     def highlightBlock(self, text):
-        # 1) localizar y pintar strings
         string_spans = []
         it = self.string_pattern.globalMatch(text)
         while it.hasNext():
@@ -78,7 +74,6 @@ class PythonHighlighter(QSyntaxHighlighter):
             self.setFormat(s, l, self.string_format)
             string_spans.append((s, l))
 
-        # 2) localizar y pintar comentarios
         comment_spans = []
         it = self.comment_pattern.globalMatch(text)
         while it.hasNext():
@@ -87,7 +82,6 @@ class PythonHighlighter(QSyntaxHighlighter):
             self.setFormat(s, l, self.comment_format)
             comment_spans.append((s, l))
 
-        # 3) pintar keywords sólo fuera de strings/comentarios
         for pat, fmt in self.keyword_rules:
             it2 = pat.globalMatch(text)
             while it2.hasNext():
@@ -111,7 +105,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("PyIDE – VSCode Style")
         self.resize(1024, 768)
 
-        # File system tree
+        # Árbol de archivos
         model = QFileSystemModel()
         model.setRootPath(QDir.currentPath())
         self.tree = QTreeView()
@@ -119,12 +113,12 @@ class MainWindow(QMainWindow):
         self.tree.setRootIndex(model.index(QDir.currentPath()))
         self.tree.doubleClicked.connect(self.open_from_tree)
 
-        # Tabs para editores
+        # Pestañas de editor
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
 
-        # Layout central: árbol + tabs
+        # Layout central
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.addWidget(self.tree, 1)
@@ -135,47 +129,55 @@ class MainWindow(QMainWindow):
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
-        # Panel de salida (dockable)
+        # Panel Output (stdout + stderr)
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
         dock = QDockWidget("Output", self)
         dock.setWidget(self.output)
         self.addDockWidget(Qt.BottomDockWidgetArea, dock)
 
-        # QProcess para ejecución
+        # QProcess para ejecutar Python (canales unidos)
         self.proc = QProcess(self)
         self.proc.setProcessChannelMode(QProcess.MergedChannels)
         self.proc.readyReadStandardOutput.connect(self.handle_stdout)
         self.proc.finished.connect(self.process_finished)
 
-        # Menús
+        # Menús y acciones con hotkeys
         menubar = QMenuBar()
-        # File
+
         file_menu = menubar.addMenu("&File")
         file_menu.addAction(self._make_action("Open...", self.open_file))
         file_menu.addAction(self._make_action("Open Multiple...", self.open_multiple))
         file_menu.addSeparator()
-        file_menu.addAction(self._make_action("Save", self.save_current))
-        file_menu.addAction(self._make_action("Save As...", self.save_as_current))
+        file_menu.addAction(self._make_action("Save", self.save_current, "Ctrl+S"))
+        file_menu.addAction(self._make_action("Save As...", self.save_as_current, "Ctrl+Shift+S"))
         file_menu.addSeparator()
         file_menu.addAction(self._make_action("Exit", self.close))
-        # Edit
+
         edit_menu = menubar.addMenu("&Edit")
+        edit_menu.addAction(self._make_action("Undo", self.undo_current, "Ctrl+Z"))
+        edit_menu.addAction(self._make_action("Redo", self.redo_current, "Ctrl+Shift+Z"))
+        edit_menu.addAction(self._make_action("Select All", self.select_all_current, "Ctrl+A"))
+        edit_menu.addSeparator()
         edit_menu.addAction(self._make_action("Encrypt", self.encrypt_current))
         edit_menu.addAction(self._make_action("Decrypt", self.decrypt_current))
-        # Run
+        edit_menu.addSeparator()
+        edit_menu.addAction(self._make_action("Go to Line...", self.go_to_line, "Alt+G"))
+
         run_menu = menubar.addMenu("&Run")
-        run_menu.addAction(self._make_action("Debug (Syntax)", self.debug_current))
-        run_menu.addAction(self._make_action("Run Code", self.run_current))
+        run_menu.addAction(self._make_action("Debug (Syntax)", self.debug_current, "Alt+V"))
+        run_menu.addAction(self._make_action("Run Code", self.run_current, "F5"))
 
         self.setMenuBar(menubar)
 
-    def _make_action(self, name, handler):
-        act = QAction(name, self)
+    def _make_action(self, text, handler, shortcut=None):
+        act = QAction(text, self)
         act.triggered.connect(handler)
+        if shortcut:
+            act.setShortcut(shortcut)
         return act
 
-    # --- abrir/guardar ---
+    # --- Abrir / Guardar ---
     def open_file(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open File", "", "Python Files (*.py);;All Files (*)")
         if path:
@@ -221,27 +223,63 @@ class MainWindow(QMainWindow):
         self.tabs.setTabText(self.tabs.currentIndex(), os.path.basename(path))
         self.status.showMessage(f"Saved As: {path}", 5000)
 
-    # --- cifrado/descifrado ---
+    # --- Undo / Redo / Select All ---
+    def undo_current(self):
+        ed = self.tabs.currentWidget()
+        if ed:
+            ed.undo()
+
+    def redo_current(self):
+        ed = self.tabs.currentWidget()
+        if ed:
+            ed.redo()
+
+    def select_all_current(self):
+        ed = self.tabs.currentWidget()
+        if ed:
+            ed.selectAll()
+
+    # --- Go to Line ---
+    def go_to_line(self):
+        ed = self.tabs.currentWidget()
+        if not ed:
+            return
+        max_line = ed.document().blockCount()
+        line, ok = QInputDialog.getInt(
+            self, "Go to line", f"Line number (1–{max_line}):", min=1, max=max_line
+        )
+        if ok:
+            block = ed.document().findBlockByNumber(line - 1)
+            cursor = QTextCursor(block)
+            ed.setTextCursor(cursor)
+            ed.setFocus()
+
+    # --- Cifrado / Descifrado ---
     def encrypt_current(self):
         ed = self.tabs.currentWidget()
-        txt = ed.toPlainText()
-        ed.setPlainText(xor_cipher(txt))
-        self.status.showMessage("Content encrypted (XOR).", 3000)
+        if ed:
+            ed.setPlainText(xor_cipher(ed.toPlainText()))
+            self.status.showMessage("Content encrypted (XOR).", 3000)
 
     def decrypt_current(self):
         ed = self.tabs.currentWidget()
-        txt = ed.toPlainText()
-        ed.setPlainText(xor_cipher(txt))
-        self.status.showMessage("Content decrypted (XOR).", 3000)
+        if ed:
+            ed.setPlainText(xor_cipher(ed.toPlainText()))
+            self.status.showMessage("Content decrypted (XOR).", 3000)
 
-    # --- debug sintaxis ---
+    # --- Debug sintaxis ---
     def debug_current(self):
         ed = self.tabs.currentWidget()
+        if not ed:
+            return
         ed.setExtraSelections([])
+        self.output.clear()
         code = ed.toPlainText()
         try:
             compile(code, '<string>', 'exec')
+            msg = ">>> No syntax errors detected.\n"
             self.status.showMessage("No syntax errors detected.", 5000)
+            self.output.appendPlainText(msg)
         except SyntaxError as e:
             ln = e.lineno or 1
             sel = QTextEdit.ExtraSelection()
@@ -250,33 +288,40 @@ class MainWindow(QMainWindow):
             sel.cursor = QTextCursor(block)
             sel.cursor.clearSelection()
             ed.setExtraSelections([sel])
-            self.status.showMessage(f"Syntax error at line {ln}: {e.msg}", 7000)
+            err = f"SyntaxError en línea {ln}: {e.msg}\n"
+            self.status.showMessage(err, 7000)
+            self.output.appendPlainText(err)
 
-    # --- ejecutar código ---
+    # --- Ejecutar código ---
     def run_current(self):
         ed = self.tabs.currentWidget()
         if not ed:
             return
-        # volcamos el código a un temp file
         code = ed.toPlainText()
         tmp = tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w", encoding="utf-8")
         tmp.write(code)
-        tmp.flush()
         tmp.close()
 
         self.output.clear()
-        self.status.showMessage("Executing...", 3000)
-        # arrancamos QProcess
+        self.status.showMessage("Ejecutando código...", 3000)
         self.proc.start(sys.executable, [tmp.name])
 
     def handle_stdout(self):
-        data = self.proc.readAllStandardOutput().data().decode()
-        self.output.appendPlainText(data)
+        text = self.proc.readAllStandardOutput().data().decode()
+        if text:
+            self.output.appendPlainText(text)
 
-    def process_finished(self, code, status):
-        self.status.showMessage(f"Process finished (exit code {code})", 5000)
+    def process_finished(self, exit_code, exit_status):
+        self.handle_stdout()
+        if exit_code == 0:
+            final = ">>> Ejecución completada correctamente, sin errores."
+            self.status.showMessage("Proceso finalizado (exit code 0)", 5000)
+        else:
+            final = f">>> Ejecución finalizada con errores (exit code {exit_code})."
+            self.status.showMessage(final, 7000)
+        self.output.appendPlainText(final)
 
-    # --- cerrar pestaña ---
+    # --- Cerrar pestaña ---
     def close_tab(self, index):
         self.tabs.removeTab(index)
         self.status.showMessage(f"Closed tab {index}", 3000)
