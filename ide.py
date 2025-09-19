@@ -3,6 +3,8 @@
 PyIDE – VSCode Style con:
 - Explorador de archivos
 - Pestañas de edición (cerrables)
+- Numeración de líneas
+- Tabulación / Des-tabulación inteligente
 - Resaltado de sintaxis Python (keywords azul, strings rojo, comentarios gris)
 - Abrir (simple/múltiple), Guardar, Guardar como
 - Encriptar / Desencriptar (XOR)
@@ -16,10 +18,13 @@ import sys
 import os
 import tempfile
 
-from PySide6.QtCore import QDir, QRegularExpression, Qt, QProcess
+from PySide6.QtCore import (
+    QDir, QRegularExpression, Qt, QProcess,
+    QRect, QSize
+)
 from PySide6.QtGui import (
-    QAction, QColor, QFont,
-    QSyntaxHighlighter, QTextCharFormat, QTextCursor
+    QAction, QColor, QFont, QSyntaxHighlighter,
+    QTextCharFormat, QTextCursor, QPainter
 )
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout,
@@ -28,6 +33,7 @@ from PySide6.QtWidgets import (
     QDockWidget, QInputDialog
 )
 
+
 # -------------------------------------------------
 # XOR Cipher
 # -------------------------------------------------
@@ -35,6 +41,108 @@ ENCRYPTION_KEY = 67
 
 def xor_cipher(text, key=ENCRYPTION_KEY):
     return ''.join(chr(ord(c) ^ key) for c in text)
+
+
+# -------------------------------------------------
+# Line Number Area Widget
+# -------------------------------------------------
+class LineNumberArea(QWidget):
+    def __init__(self, editor):
+        super().__init__(editor)
+        self.codeEditor = editor
+
+    def sizeHint(self):
+        return QSize(self.codeEditor.lineNumberAreaWidth(), 0)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(event.rect(), QColor("#f0f0f0"))
+
+        block = self.codeEditor.firstVisibleBlock()
+        block_number = block.blockNumber()
+        top = self.codeEditor.blockBoundingGeometry(block) \
+                  .translated(self.codeEditor.contentOffset()).top()
+        bottom = top + self.codeEditor.blockBoundingRect(block).height()
+        line_height = self.codeEditor.fontMetrics().height()
+        painter.setPen(QColor("#888888"))
+
+        while block.isValid() and top <= event.rect().bottom():
+            if block.isVisible() and bottom >= event.rect().top():
+                number = str(block_number + 1)
+                painter.drawText(
+                    0, top,
+                    self.width(), line_height,
+                    Qt.AlignRight, number
+                )
+            block = block.next()
+            top = bottom
+            bottom = top + self.codeEditor.blockBoundingRect(block).height()
+            block_number += 1
+
+        painter.end()
+
+
+# -------------------------------------------------
+# Code Editor with Line Numbers & Tab Handling
+# -------------------------------------------------
+class CodeEditor(QPlainTextEdit):
+    def __init__(self):
+        super().__init__()
+        # Tab = 4 spaces
+        space_width = self.fontMetrics().horizontalAdvance(' ')
+        self.setTabStopDistance(4 * space_width)
+
+        # Line number area
+        self.lineNumberArea = LineNumberArea(self)
+        self.blockCountChanged.connect(self.updateLineNumberAreaWidth)
+        self.updateRequest.connect(self.updateLineNumberArea)
+        self.updateLineNumberAreaWidth(0)
+
+    def lineNumberAreaWidth(self):
+        digits = len(str(max(1, self.blockCount())))
+        return 3 + self.fontMetrics().horizontalAdvance('9') * digits
+
+    def updateLineNumberAreaWidth(self, _):
+        self.setViewportMargins(self.lineNumberAreaWidth(), 0, 0, 0)
+
+    def updateLineNumberArea(self, rect, dy):
+        if dy:
+            self.lineNumberArea.scroll(0, dy)
+        else:
+            self.lineNumberArea.update(
+                0, rect.y(),
+                self.lineNumberArea.width(), rect.height()
+            )
+        if rect.contains(self.viewport().rect()):
+            self.updateLineNumberAreaWidth(0)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        cr = self.contentsRect()
+        self.lineNumberArea.setGeometry(
+            QRect(cr.left(), cr.top(),
+                  self.lineNumberAreaWidth(), cr.height())
+        )
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Tab and not event.modifiers():
+            self.insertPlainText(' ' * 4)
+            return
+        if event.key() == Qt.Key_Backtab:
+            cursor = self.textCursor()
+            block = cursor.block()
+            text = block.text()
+            indent = len(text) - len(text.lstrip(' '))
+            if indent >= 4:
+                cursor.beginEditBlock()
+                start = block.position()
+                cursor.setPosition(start)
+                cursor.setPosition(start + 4, QTextCursor.KeepAnchor)
+                cursor.removeSelectedText()
+                cursor.endEditBlock()
+            return
+        super().keyPressEvent(event)
+
 
 # -------------------------------------------------
 # Syntax Highlighter mejorado
@@ -65,6 +173,7 @@ class PythonHighlighter(QSyntaxHighlighter):
         self.string_format.setForeground(QColor("#A31515"))
 
     def highlightBlock(self, text):
+        # 1) Strings
         string_spans = []
         it = self.string_pattern.globalMatch(text)
         while it.hasNext():
@@ -73,6 +182,7 @@ class PythonHighlighter(QSyntaxHighlighter):
             self.setFormat(s, l, self.string_format)
             string_spans.append((s, l))
 
+        # 2) Comments
         comment_spans = []
         it = self.comment_pattern.globalMatch(text)
         while it.hasNext():
@@ -81,19 +191,16 @@ class PythonHighlighter(QSyntaxHighlighter):
             self.setFormat(s, l, self.comment_format)
             comment_spans.append((s, l))
 
+        # 3) Keywords (only outside strings/comments)
         for pat, fmt in self.keyword_rules:
-            it2 = pat.globalMatch(text)
-            while it2.hasNext():
-                m2 = it2.next()
-                s, l = m2.capturedStart(), m2.capturedLength()
-                if not self._inside_spans(s, string_spans) and not self._inside_spans(s, comment_spans):
+            it = pat.globalMatch(text)
+            while it.hasNext():
+                m = it.next()
+                s, l = m.capturedStart(), m.capturedLength()
+                if not any(start <= s < start + length
+                           for start, length in string_spans + comment_spans):
                     self.setFormat(s, l, fmt)
 
-    def _inside_spans(self, pos, spans):
-        for start, length in spans:
-            if start <= pos < start + length:
-                return True
-        return False
 
 # -------------------------------------------------
 # Main Window
@@ -104,7 +211,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("PyIDE – VSCode Style")
         self.resize(1024, 768)
 
-        # Árbol de archivos
+        # File system tree
         model = QFileSystemModel()
         model.setRootPath(QDir.currentPath())
         self.tree = QTreeView()
@@ -112,12 +219,12 @@ class MainWindow(QMainWindow):
         self.tree.setRootIndex(model.index(QDir.currentPath()))
         self.tree.doubleClicked.connect(self.open_from_tree)
 
-        # Pestañas de editor
+        # Tabs for editors
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
 
-        # Layout central
+        # Central layout
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.addWidget(self.tree, 1)
@@ -128,20 +235,20 @@ class MainWindow(QMainWindow):
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
-        # Panel Output (stdout + stderr)
+        # Output panel
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
         dock = QDockWidget("Output", self)
         dock.setWidget(self.output)
         self.addDockWidget(Qt.BottomDockWidgetArea, dock)
 
-        # QProcess para ejecutar Python (canales unidos)
+        # QProcess for execution (merged channels)
         self.proc = QProcess(self)
         self.proc.setProcessChannelMode(QProcess.MergedChannels)
         self.proc.readyReadStandardOutput.connect(self.handle_stdout)
         self.proc.finished.connect(self.process_finished)
 
-        # Menús y acciones con hotkeys
+        # Menus & hotkeys
         menubar = QMenuBar()
 
         file_menu = menubar.addMenu("&File")
@@ -176,26 +283,30 @@ class MainWindow(QMainWindow):
             act.setShortcut(shortcut)
         return act
 
-    # --- Abrir / Guardar ---
+    # --- File ops ---
     def open_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Open File", "", "Python Files (*.py);;All Files (*)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open File", "", "Python Files (*.py);;All Files (*)"
+        )
         if path:
             self._load_path(path)
 
     def open_multiple(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, "Open Multiple", "", "Python Files (*.py);;All Files (*)")
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Open Multiple", "", "Python Files (*.py);;All Files (*)"
+        )
         for p in paths:
             self._load_path(p)
 
     def open_from_tree(self, idx):
-        p = self.tree.model().filePath(idx)
-        if os.path.isfile(p):
-            self._load_path(p)
+        path = self.tree.model().filePath(idx)
+        if os.path.isfile(path):
+            self._load_path(path)
 
     def _load_path(self, path):
         with open(path, 'r', encoding='utf-8') as f:
             text = f.read()
-        editor = QPlainTextEdit()
+        editor = CodeEditor()
         editor.setPlainText(text)
         editor.file_path = path
         PythonHighlighter(editor.document())
@@ -213,7 +324,9 @@ class MainWindow(QMainWindow):
 
     def save_as_current(self):
         ed = self.tabs.currentWidget()
-        path, _ = QFileDialog.getSaveFileName(self, "Save As", "", "Python Files (*.py);;All Files (*)")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save As", "", "Python Files (*.py);;All Files (*)"
+        )
         if not path:
             return
         with open(path, 'w', encoding='utf-8') as f:
@@ -222,7 +335,7 @@ class MainWindow(QMainWindow):
         self.tabs.setTabText(self.tabs.currentIndex(), os.path.basename(path))
         self.status.showMessage(f"Saved As: {path}", 5000)
 
-    # --- Undo / Redo / Select All ---
+    # --- Edit ops ---
     def undo_current(self):
         ed = self.tabs.currentWidget()
         if ed:
@@ -238,21 +351,15 @@ class MainWindow(QMainWindow):
         if ed:
             ed.selectAll()
 
-    # --- Go to Line (posicional args, sin kwargs) ---
     def go_to_line(self):
         ed = self.tabs.currentWidget()
         if not ed:
             return
         max_line = ed.document().blockCount()
-        # getInt signature: (parent, title, label, value, minimum, maximum, step)
         line, ok = QInputDialog.getInt(
-            self,
-            "Go to line",
+            self, "Go to line",
             f"Line number (1–{max_line}):",
-            1,      # valor inicial
-            1,      # mínimo
-            max_line,  # máximo
-            1       # step
+            1, 1, max_line, 1
         )
         if ok:
             block = ed.document().findBlockByNumber(line - 1)
@@ -260,7 +367,7 @@ class MainWindow(QMainWindow):
             ed.setTextCursor(cursor)
             ed.setFocus()
 
-    # --- Cifrado / Descifrado ---
+    # --- Encrypt / Decrypt ---
     def encrypt_current(self):
         ed = self.tabs.currentWidget()
         if ed:
@@ -273,7 +380,7 @@ class MainWindow(QMainWindow):
             ed.setPlainText(xor_cipher(ed.toPlainText()))
             self.status.showMessage("Content decrypted (XOR).", 3000)
 
-    # --- Debug sintaxis ---
+    # --- Syntax debug ---
     def debug_current(self):
         ed = self.tabs.currentWidget()
         if not ed:
@@ -298,13 +405,16 @@ class MainWindow(QMainWindow):
             self.status.showMessage(err, 7000)
             self.output.appendPlainText(err)
 
-    # --- Ejecutar código ---
+    # --- Run code ---
     def run_current(self):
         ed = self.tabs.currentWidget()
         if not ed:
             return
         code = ed.toPlainText()
-        tmp = tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w", encoding="utf-8")
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=".py", delete=False,
+            mode="w", encoding="utf-8"
+        )
         tmp.write(code)
         tmp.close()
 
@@ -327,10 +437,11 @@ class MainWindow(QMainWindow):
             self.status.showMessage(final, 7000)
         self.output.appendPlainText(final)
 
-    # --- Cerrar pestaña ---
+    # --- Close tab ---
     def close_tab(self, index):
         self.tabs.removeTab(index)
         self.status.showMessage(f"Closed tab {index}", 3000)
+
 
 # -------------------------------------------------
 # Entry point
@@ -340,6 +451,7 @@ def main():
     win = MainWindow()
     win.show()
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()
