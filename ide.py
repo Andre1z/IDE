@@ -5,7 +5,7 @@ PyIDE – VSCode Style con:
 - Pestañas de edición (cerrables)
 - Numeración de líneas
 - Tabulación / Des-tabulación inteligente
-- Resaltado de sintaxis Python (keywords azul, strings rojo, comentarios gris)
+- Resaltado de sintaxis Python usando palabras de JSON
 - Abrir (simple/múltiple), Guardar, Guardar como
 - Encriptar / Desencriptar (XOR)
 - Deshacer / Rehacer / Seleccionar todo
@@ -16,6 +16,7 @@ PyIDE – VSCode Style con:
 
 import sys
 import os
+import json
 import tempfile
 
 from PySide6.QtCore import (
@@ -33,6 +34,13 @@ from PySide6.QtWidgets import (
     QDockWidget, QInputDialog
 )
 
+# -------------------------------------------------
+# Carga de palabras reservadas desde JSON
+# -------------------------------------------------
+BASE_DIR = os.path.dirname(__file__)
+KW_PATH = os.path.join(BASE_DIR, "palabras_reservadas.json")
+with open(KW_PATH, "r", encoding="utf-8") as f:
+    KEYWORDS = json.load(f)
 
 # -------------------------------------------------
 # XOR Cipher
@@ -41,7 +49,6 @@ ENCRYPTION_KEY = 67
 
 def xor_cipher(text, key=ENCRYPTION_KEY):
     return ''.join(chr(ord(c) ^ key) for c in text)
-
 
 # -------------------------------------------------
 # Line Number Area Widget
@@ -60,8 +67,8 @@ class LineNumberArea(QWidget):
 
         block = self.codeEditor.firstVisibleBlock()
         block_number = block.blockNumber()
-        top = self.codeEditor.blockBoundingGeometry(block) \
-                  .translated(self.codeEditor.contentOffset()).top()
+        top = self.codeEditor.blockBoundingGeometry(block)\
+                    .translated(self.codeEditor.contentOffset()).top()
         bottom = top + self.codeEditor.blockBoundingRect(block).height()
         line_height = self.codeEditor.fontMetrics().height()
         painter.setPen(QColor("#888888"))
@@ -81,18 +88,15 @@ class LineNumberArea(QWidget):
 
         painter.end()
 
-
 # -------------------------------------------------
 # Code Editor with Line Numbers & Tab Handling
 # -------------------------------------------------
 class CodeEditor(QPlainTextEdit):
     def __init__(self):
         super().__init__()
-        # Tab = 4 spaces
         space_width = self.fontMetrics().horizontalAdvance(' ')
         self.setTabStopDistance(4 * space_width)
 
-        # Line number area
         self.lineNumberArea = LineNumberArea(self)
         self.blockCountChanged.connect(self.updateLineNumberAreaWidth)
         self.updateRequest.connect(self.updateLineNumberArea)
@@ -143,9 +147,8 @@ class CodeEditor(QPlainTextEdit):
             return
         super().keyPressEvent(event)
 
-
 # -------------------------------------------------
-# Syntax Highlighter mejorado
+# Syntax Highlighter que usa KEYWORDS de JSON
 # -------------------------------------------------
 class PythonHighlighter(QSyntaxHighlighter):
     def __init__(self, doc):
@@ -154,13 +157,8 @@ class PythonHighlighter(QSyntaxHighlighter):
         kw_fmt = QTextCharFormat()
         kw_fmt.setForeground(QColor("#569CD6"))
         kw_fmt.setFontWeight(QFont.Bold)
-        keywords = [
-            "import","from","class","def","if","elif","else","for","while",
-            "return","in","and","or","not","with","as","try","except","finally",
-            "pass","break","continue","yield","assert","async","await",
-            "global","nonlocal","del","raise","is","lambda"
-        ]
-        for w in keywords:
+
+        for w in KEYWORDS:
             pat = QRegularExpression(rf"\b{w}\b")
             self.keyword_rules.append((pat, kw_fmt))
 
@@ -170,10 +168,10 @@ class PythonHighlighter(QSyntaxHighlighter):
 
         self.string_pattern = QRegularExpression(r"(['\"]).*?\1")
         self.string_format = QTextCharFormat()
-        self.string_format.setForeground(QColor("#A31515"))
+        # Strings en verde para no confundir con errores
+        self.string_format.setForeground(QColor("#6A9955"))
 
     def highlightBlock(self, text):
-        # 1) Strings
         string_spans = []
         it = self.string_pattern.globalMatch(text)
         while it.hasNext():
@@ -182,7 +180,6 @@ class PythonHighlighter(QSyntaxHighlighter):
             self.setFormat(s, l, self.string_format)
             string_spans.append((s, l))
 
-        # 2) Comments
         comment_spans = []
         it = self.comment_pattern.globalMatch(text)
         while it.hasNext():
@@ -191,7 +188,6 @@ class PythonHighlighter(QSyntaxHighlighter):
             self.setFormat(s, l, self.comment_format)
             comment_spans.append((s, l))
 
-        # 3) Keywords (only outside strings/comments)
         for pat, fmt in self.keyword_rules:
             it = pat.globalMatch(text)
             while it.hasNext():
@@ -200,7 +196,6 @@ class PythonHighlighter(QSyntaxHighlighter):
                 if not any(start <= s < start + length
                            for start, length in string_spans + comment_spans):
                     self.setFormat(s, l, fmt)
-
 
 # -------------------------------------------------
 # Main Window
@@ -211,7 +206,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("PyIDE – VSCode Style")
         self.resize(1024, 768)
 
-        # File system tree
         model = QFileSystemModel()
         model.setRootPath(QDir.currentPath())
         self.tree = QTreeView()
@@ -219,36 +213,30 @@ class MainWindow(QMainWindow):
         self.tree.setRootIndex(model.index(QDir.currentPath()))
         self.tree.doubleClicked.connect(self.open_from_tree)
 
-        # Tabs for editors
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
 
-        # Central layout
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.addWidget(self.tree, 1)
         layout.addWidget(self.tabs, 3)
         self.setCentralWidget(container)
 
-        # Status bar
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
-        # Output panel
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
         dock = QDockWidget("Output", self)
         dock.setWidget(self.output)
         self.addDockWidget(Qt.BottomDockWidgetArea, dock)
 
-        # QProcess for execution (merged channels)
         self.proc = QProcess(self)
         self.proc.setProcessChannelMode(QProcess.MergedChannels)
         self.proc.readyReadStandardOutput.connect(self.handle_stdout)
         self.proc.finished.connect(self.process_finished)
 
-        # Menus & hotkeys
         menubar = QMenuBar()
 
         file_menu = menubar.addMenu("&File")
@@ -442,7 +430,6 @@ class MainWindow(QMainWindow):
         self.tabs.removeTab(index)
         self.status.showMessage(f"Closed tab {index}", 3000)
 
-
 # -------------------------------------------------
 # Entry point
 # -------------------------------------------------
@@ -452,6 +439,6 @@ def main():
     win.show()
     sys.exit(app.exec())
 
-
 if __name__ == "__main__":
     main()
+    
