@@ -1,0 +1,106 @@
+[
+  {
+    "name": "Light",
+    "background": "#FFFFFF",
+    "foreground": "#000000",
+    "keyword": "#0000FF",
+    "string": "#008000",
+    "comment": "#808080"
+  },
+  {
+    "name": "Dark",
+    "background": "#1E1E1E",
+    "foreground": "#D4D4D4",
+    "keyword": "#569CD6",
+    "string": "#CE9178",
+    "comment": "#6A9955"
+  },
+  {
+    "name": "Monokai",
+    "background": "#272822",
+    "foreground": "#F8F8F2",
+    "keyword": "#F92672",
+    "string": "#E6DB74",
+    "comment": "#75715E"
+  },
+  {
+    "name": "Solarized Light",
+    "background": "#FDF6E3",
+    "foreground": "#657B83",
+    "keyword": "#859900",
+    "string": "#2AA198",
+    "comment": "#93A1A1"
+  },
+  {
+    "name": "Solarized Dark",
+    "background": "#002B36",
+    "foreground": "#839496",
+    "keyword": "#B58900",
+    "string": "#2AA198",
+    "comment": "#586E75"
+  },
+  {
+    "name": "Twilight",
+    "background": "#141414",
+    "foreground": "#F8F8F8",
+    "keyword": "#CDA869",
+    "string": "#6A8759",
+    "comment": "#808080"
+  },
+  {
+    "name": "Gruvbox Dark",
+    "background": "#282828",
+    "foreground": "#EBDBB2",
+    "keyword": "#FB4934",
+    "string": "#B8BB26",
+    "comment": "#928374"
+  },
+  {
+    "name": "Dracula",
+    "background": "#282A36",
+    "foreground": "#F8F8F2",
+    "keyword": "#FF79C6",
+    "string": "#F1FA8C",
+    "comment": "#6272A4"
+  },
+  {
+    "name": "One Light",
+    "background": "#FAFBFC",
+    "foreground": "#383A42",
+    "keyword": "#A626A4",
+    "string": "#50A14F",
+    "comment": "#A0A1A7"
+  },
+  {
+    "name": "One Dark",
+    "background": "#282C34",
+    "foreground": "#ABB2BF",
+    "keyword": "#C678DD",
+    "string": "#98C379",
+    "comment": "#5C6370"
+  },
+  {
+    "name": "Cobalt",
+    "background": "#002240",
+    "foreground": "#FFFFFF",
+    "keyword": "#569CD6",
+    "string": "#D69D85",
+    "comment": "#6A9955"
+  },
+  {
+    "name": "Material Light",
+    "background": "#FAFAFA",
+    "foreground": "#263238",
+    "keyword": "#E91E63",
+    "string": "#43A047",
+    "comment": "#78909C"
+  },
+  {
+    "name": "Material Dark",
+    "background": "#263238",
+    "foreground": "#EEFFFF",
+    "keyword": "#FF4081",
+    "string": "#80CBC4",
+    "comment": "#546E7A"
+  }
+]
