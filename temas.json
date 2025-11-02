@@ -1,8 +1,18 @@
 [
   {
+    "name": "Default",
+    "background": "#FFFFFF",
+    "foreground": "#111111",
+    "keyword": "#0066CC",
+    "string": "#008000",
+    "comment": "#888888",
+    "sidebar_background": "#14d69a",
+    "terminal_background": "#3d3d3d"
+  },
+  {
     "name": "Light",
     "background": "#FFFFFF",
-    "foreground": "#000000",
+    "foreground": "#111111",
     "keyword": "#0000FF",
     "string": "#008000",
     "comment": "#808080"
@@ -26,7 +36,7 @@
   {
     "name": "Solarized Light",
     "background": "#FDF6E3",
-    "foreground": "#657B83",
+    "foreground": "#111111",
     "keyword": "#859900",
     "string": "#2AA198",
     "comment": "#93A1A1"
@@ -66,7 +76,7 @@
   {
     "name": "One Light",
     "background": "#FAFBFC",
-    "foreground": "#383A42",
+    "foreground": "#111111",
     "keyword": "#A626A4",
     "string": "#50A14F",
     "comment": "#A0A1A7"
@@ -90,7 +100,7 @@
   {
     "name": "Material Light",
     "background": "#FAFAFA",
-    "foreground": "#263238",
+    "foreground": "#111111",
     "keyword": "#E91E63",
     "string": "#43A047",
     "comment": "#78909C"
