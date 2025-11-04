@@ -10,14 +10,6 @@
     "terminal_background": "#3d3d3d"
   },
   {
-    "name": "Light",
-    "background": "#FFFFFF",
-    "foreground": "#111111",
-    "keyword": "#0000FF",
-    "string": "#008000",
-    "comment": "#808080"
-  },
-  {
     "name": "Dark",
     "background": "#1E1E1E",
     "foreground": "#D4D4D4",
