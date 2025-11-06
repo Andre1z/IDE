@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ide.py
-PyIDE Educativo (todo en un solo archivo, con selector de proyecto al inicio)
+PyIDE (todo en un solo archivo, con selector de proyecto al inicio)
 
 Características integradas:
 - Diálogo inicial Crear proyecto / Abrir proyecto
@@ -396,7 +396,7 @@ class ProjectDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self, project_root=None):
         super().__init__()
-        self.setWindowTitle("PyIDE Educativo – Proyecto")
+        self.setWindowTitle("PyIDE Proyecto")
         self.resize(1024, 768)
 
         self.project_root = project_root or os.getcwd()
