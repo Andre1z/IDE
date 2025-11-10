@@ -396,7 +396,7 @@ class ProjectDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self, project_root=None):
         super().__init__()
-        self.setWindowTitle("PyIDE Proyecto")
+        self.setWindowTitle("River IDE")
         self.resize(1024, 768)
 
         self.project_root = project_root or os.getcwd()
